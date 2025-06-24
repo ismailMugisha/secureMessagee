@@ -12,7 +12,7 @@ const pool = new Pool({
   }
 });
 
-// Routes for contacts CRUD
+// ----------- Contacts CRUD ------------
 
 // GET all contacts
 app.get('/api/contacts', async (req, res) => {
@@ -89,6 +89,47 @@ app.delete('/api/contacts/:id', async (req, res) => {
       return res.status(404).json({ message: 'Contact not found' });
     }
     res.json({ message: 'Contact deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ------------ Messages (send to role with GPS) ------------
+
+// Note: Make sure your `messages` table has columns:
+// sender (text), receiver (text), content (text), timestamp (timestamp), latitude (text), longitude (text)
+
+app.post('/api/messages/send-to-role', async (req, res) => {
+  const { sender, role, content, latitude, longitude } = req.body;
+
+  if (!sender || !role || !content) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  try {
+    // Find all contacts with the given role
+    const receiversResult = await pool.query('SELECT name FROM contacts WHERE role = $1', [role]);
+
+    if (receiversResult.rows.length === 0) {
+      return res.status(404).json({ message: 'No contacts found with this role' });
+    }
+
+    const now = new Date().toISOString();
+
+    // Build bulk insert query for messages
+    const values = receiversResult.rows.map(r =>
+      `('${sender}', '${r.name}', '${content}', '${now}', '${latitude || ''}', '${longitude || ''}')`
+    ).join(',');
+
+    const insertQuery = `
+      INSERT INTO messages (sender, receiver, content, timestamp, latitude, longitude)
+      VALUES ${values}
+    `;
+
+    await pool.query(insertQuery);
+
+    res.status(200).json({ message: `Message sent to all ${role}s successfully.` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
