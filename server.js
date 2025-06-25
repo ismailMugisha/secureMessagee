@@ -4,7 +4,7 @@ const app = express();
 
 app.use(express.json());
 
-// PostgreSQL connection using connection string
+// PostgreSQL connection config
 const pool = new Pool({
   connectionString: 'postgresql://neondb_owner:npg_mJhLtdy7wH0a@ep-polished-fog-a8bugzp7-pooler.eastus2.azure.neon.tech/neondb?sslmode=require',
   ssl: {
@@ -95,11 +95,9 @@ app.delete('/api/contacts/:id', async (req, res) => {
   }
 });
 
-// ------------ Messages (send to role with GPS) ------------
+// ------------ Messages ------------
 
-// Note: Make sure your `messages` table has columns:
-// sender (text), receiver (text), content (text), timestamp (timestamp), latitude (text), longitude (text)
-
+// Send message to all contacts with a given role
 app.post('/api/messages/send-to-role', async (req, res) => {
   const { sender, role, content, latitude, longitude } = req.body;
 
@@ -108,7 +106,7 @@ app.post('/api/messages/send-to-role', async (req, res) => {
   }
 
   try {
-    // Find all contacts with the given role
+    // Fata contacts bafite role runaka
     const receiversResult = await pool.query('SELECT name FROM contacts WHERE role = $1', [role]);
 
     if (receiversResult.rows.length === 0) {
@@ -117,17 +115,22 @@ app.post('/api/messages/send-to-role', async (req, res) => {
 
     const now = new Date().toISOString();
 
-    // Build bulk insert query for messages
-    const values = receiversResult.rows.map(r =>
-      `('${sender}', '${r.name}', '${content}', '${now}', '${latitude || ''}', '${longitude || ''}')`
-    ).join(',');
+    // Parameterized bulk insert preparation
+    const values = [];
+    const params = [];
+    let paramIndex = 1;
+
+    receiversResult.rows.forEach(r => {
+      params.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+      values.push(sender, r.name, content, now, latitude || '', longitude || '');
+    });
 
     const insertQuery = `
       INSERT INTO messages (sender, receiver, content, timestamp, latitude, longitude)
-      VALUES ${values}
+      VALUES ${params.join(', ')}
     `;
 
-    await pool.query(insertQuery);
+    await pool.query(insertQuery, values);
 
     res.status(200).json({ message: `Message sent to all ${role}s successfully.` });
   } catch (err) {
@@ -136,7 +139,7 @@ app.post('/api/messages/send-to-role', async (req, res) => {
   }
 });
 
-// Start server
+// Server start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
